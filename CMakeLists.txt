@@ -20,13 +20,15 @@ endif()
 
 # ── ROS2 运行时依赖 ───────────────────────────────────────────────
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
-# ── 生成自定义服务接口 ───────────────────────────────────────────
+# ── 生成自定义接口 ───────────────────────────────────────────
 rosidl_generate_interfaces(${PROJECT_NAME}
     "srv/VlmQuery.srv"
+    "action/StreamQuery.action"
 )
 
 # 获取 typesupport 目标（替代废弃的 rosidl_target_interfaces）
@@ -67,7 +69,7 @@ add_executable(vlm_server
     src/VlmServerNode.cpp
 )
 target_include_directories(vlm_server PRIVATE include ${RK_INCLUDE_PATH})
-ament_target_dependencies(vlm_server rclcpp sensor_msgs cv_bridge)
+ament_target_dependencies(vlm_server rclcpp rclcpp_action sensor_msgs cv_bridge)
 # rk35llm_lib(PUBLIC) 已携带 OpenCV + rknnrt + rkllmrt + -fopenmp 等，
 # vlm_server 只需显式链接 rk35llm_lib 即可继承全部
 target_link_libraries(vlm_server rk35llm_lib ${cpp_typesupport_target})
@@ -76,7 +78,7 @@ target_link_libraries(vlm_server rk35llm_lib ${cpp_typesupport_target})
 # vlm_client — ROS2 客户端 REPL
 # ═══════════════════════════════════════════════════════════════════
 add_executable(vlm_client src/vlm_client.cpp)
-ament_target_dependencies(vlm_client rclcpp)
+ament_target_dependencies(vlm_client rclcpp rclcpp_action)
 target_link_libraries(vlm_client ${cpp_typesupport_target})
 
 # ═══════════════════════════════════════════════════════════════════

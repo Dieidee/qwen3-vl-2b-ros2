@@ -12,6 +12,7 @@
 
   <!-- ROS2 core + messages -->
   <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
   <depend>sensor_msgs</depend>
   <depend>cv_bridge</depend>
   <depend>libopencv-dev</depend>
