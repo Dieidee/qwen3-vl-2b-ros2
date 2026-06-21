@@ -79,7 +79,10 @@ int RK35llm::InstanceCallback(RKLLMResult *result, LLMCallState state)
     else if (state == RKLLM_RUN_NORMAL)
     {
         if(!Silence) printf("%s", result->text);
-        if (result && result->text) responseBuffer_ += result->text;
+        if (result && result->text) {
+            responseBuffer_ += result->text;
+            if (token_callback_) token_callback_(result->text);
+        }
     }
     return 0;
 }
@@ -340,20 +343,33 @@ void RK35llm::LoadImage(const cv::Mat& img)
 //----------------------------------------------------------------------------------------
 std::string RK35llm::Ask(const std::string& Question)
 {
+    return AskStream(Question, nullptr);
+}
+
+//----------------------------------------------------------------------------------------
+std::string RK35llm::AskStream(const std::string& Question,
+                               std::function<void(const std::string&)> on_token)
+{
     std::string Str="";
 
     if (!llmHandle) return Str;
 
-    // Clear previous response
+    // Clear previous response and set token callback
     {
         std::lock_guard<std::mutex> lk(responseMutex_);
         responseBuffer_.clear();
         responseReady_ = false;
+        token_callback_ = on_token;
     }
 
     if (Question == "clear")
     {
         rkllm_clear_kv_cache(llmHandle, 1, nullptr, nullptr);
+        // clear callback
+        {
+            std::lock_guard<std::mutex> lk(responseMutex_);
+            token_callback_ = nullptr;
+        }
         return Str;
     }
     if (Question.find("<image>") == std::string::npos)
@@ -381,6 +397,9 @@ std::string RK35llm::Ask(const std::string& Question)
     // Wait until callback signals completion
     std::unique_lock<std::mutex> lk(responseMutex_);
     responseCv_.wait(lk, [this]{ return responseReady_; });
+
+    // clear callback
+    token_callback_ = nullptr;
 
     return responseBuffer_;
 }

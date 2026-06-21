@@ -1,19 +1,21 @@
 #include <rclcpp/rclcpp.hpp>
-#include <qwen3_vl_2b_npu/srv/vlm_query.hpp>
+#include <rclcpp_action/rclcpp_action.hpp>
+#include <qwen3_vl_2b_npu/action/stream_query.hpp>
 
-using VlmQuery = qwen3_vl_2b_npu::srv::VlmQuery;
+using StreamQuery = qwen3_vl_2b_npu::action::StreamQuery;
+using GoalHandle  = rclcpp_action::ClientGoalHandle<StreamQuery>;
 
 int main(int argc, char ** argv)
 {
     rclcpp::init(argc, argv);
     auto node = rclcpp::Node::make_shared("vlm_client");
-    auto client = node->create_client<VlmQuery>("/vlm_query");
+    auto client = rclcpp_action::create_client<StreamQuery>(node, "/vlm_query");
 
-    // ---------- 等待服务上线 ----------
+    // ---------- 等待 Action 服务上线 ----------
     RCLCPP_INFO(node->get_logger(), "Waiting for /vlm_query ...");
-    if (!client->wait_for_service(std::chrono::seconds(30))) {
+    if (!client->wait_for_action_server(std::chrono::seconds(30))) {
         RCLCPP_ERROR(node->get_logger(),
-                     "Service not available after 30s. Is vlm_server running?");
+                     "Action server not available after 30s");
         rclcpp::shutdown();
         return 1;
     }
@@ -29,29 +31,56 @@ int main(int argc, char ** argv)
         if (input.empty()) continue;
         if (input == "exit") break;
 
-        auto req = std::make_shared<VlmQuery::Request>();
-        // 自动追加 <image> 标记，确保服务端走多模态推理路径
+        // 构造 Goal
+        auto goal_msg = StreamQuery::Goal();
         if (input.find("<image>") == std::string::npos) {
-            req->question = input + " <image>";
+            goal_msg.question = input + " <image>";
         } else {
-            req->question = input;
+            goal_msg.question = input;
         }
 
-        auto future = client->async_send_request(req);
+        // feedback 回调：实时打印 token
+        bool first_token = true;
+        auto send_goal_opts = rclcpp_action::Client<StreamQuery>::SendGoalOptions();
+        send_goal_opts.feedback_callback =
+            [&first_token](
+                GoalHandle::SharedPtr,
+                const std::shared_ptr<const StreamQuery::Feedback> feedback) {
+                if (first_token) {
+                    std::cout << "Answer: ";
+                    first_token = false;
+                }
+                std::cout << feedback->token << std::flush;
+            };
 
-        // spin 直到 response 到达（或节点中断）
-        auto status = rclcpp::spin_until_future_complete(node, future);
+        // 发送 goal
+        auto future_goal_handle = client->async_send_goal(goal_msg, send_goal_opts);
 
+        // 等待 goal 被接受
+        auto status = rclcpp::spin_until_future_complete(node, future_goal_handle);
         if (status != rclcpp::FutureReturnCode::SUCCESS) {
-            std::cerr << "Call failed (timeout / interrupt)" << std::endl;
+            std::cerr << "Goal rejected or timeout" << std::endl;
+            continue;
+        }
+        auto goal_handle = future_goal_handle.get();
+        if (!goal_handle) {
+            std::cerr << "Goal handle is null" << std::endl;
             continue;
         }
 
-        auto resp = future.get();
-        if (resp->success) {
-            std::cout << "Answer: " << resp->response << std::endl;
+        // 等待结果
+        auto future_result = client->async_get_result(goal_handle);
+        status = rclcpp::spin_until_future_complete(node, future_result);
+        if (status != rclcpp::FutureReturnCode::SUCCESS) {
+            std::cerr << "Result timeout or interrupt" << std::endl;
+            continue;
+        }
+
+        auto wrapped = future_result.get();
+        if (wrapped.code != rclcpp_action::ResultCode::SUCCEEDED) {
+            std::cerr << "\n[Server error] " << wrapped.result->response << std::endl;
         } else {
-            std::cerr << "[Server error] " << resp->response << std::endl;
+            std::cout << std::endl;  // token 流末尾换行
         }
     }
 

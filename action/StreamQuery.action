@@ -1,0 +1,6 @@
+string question
+---
+string response
+bool   success
+---
+string token

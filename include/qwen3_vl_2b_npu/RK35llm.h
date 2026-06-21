@@ -8,6 +8,7 @@
 #include <iostream>
 #include <fstream>
 #include <chrono>
+#include <functional>
 #include <mutex>
 #include <condition_variable>
 #include <opencv2/opencv.hpp>
@@ -42,6 +43,9 @@ private:
     std::mutex          responseMutex_;
     std::condition_variable responseCv_;
     bool                responseReady_ = false;
+
+    // For streaming output (token callback)
+    std::function<void(const std::string&)> token_callback_;
 private:
     void        DumpTensorAttr(rknn_tensor_attr* attr);
     int         InitImgEnc(const char* model_path);
@@ -62,7 +66,12 @@ public:
     bool LoadModel(const std::string& VLMmodel, const std::string& LLMmodel, int32_t NewTokens=2048, int32_t ContextLength=4096);
     void LoadImage(const cv::Mat& img);
 
-    std::string Ask(const std::string& Question);   //ask something and get an answer.
+    std::string Ask(const std::string& Question);   // ask and get full answer (blocking)
+
+    /// @brief 流式推理：每收到一个 token 调用 on_token(token_text)，
+    ///        推理结束后返回完整回复字符串
+    std::string AskStream(const std::string& Question,
+                          std::function<void(const std::string&)> on_token);
 };
 //----------------------------------------------------------------------------------------
 #endif // RK35LLM_H
