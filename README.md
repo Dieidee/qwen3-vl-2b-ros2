@@ -1,280 +1,279 @@
-# Qwen3-VL-2B NPU
-![Alt text](https://github.com/user-attachments/assets/6d297a34-c516-4cb1-be4a-bca471d40fa6)
-<br><br>**User**:\<image\>Describe the image.<br><br>
-**Answer**: This is a surreal and imaginative photograph of an astronaut on the Moon, set against the backdrop of Earth in space.
+# qwen3_vl_2b_npu
 
-The central figure is an astronaut wearing a white spacesuit with a gold-tinted helmet visor. The suit appears to be made of a light-colored fabric, possibly cotton or a synthetic material like nylon, which has been stretched over a rigid structure. The astronaut's posture is relaxed and casual; they are reclining on the lunar surface, their legs crossed at the ankles.
+**Qwen3-VL-2B 视觉语言模型 ROS2 服务包**  
+在 Rockchip RK3588 NPU（Rock 5、Orange Pi 5 等开发板）上运行 Qwen3-VL-2B 多模态大模型，通过 ROS2 Service 接口向其他节点提供实时视觉问答能力。
 
-The astronaut is holding a green glass bottle with a white label that reads "Coca-Cola" in red script. They appear to be drinking from it or have just finished pouring it into a small cup. The astronaut's right hand is resting on the bottle, while their left arm is bent and placed near their head.
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-In front of the astronaut is a green cooler with a white stripe running along its side. The cooler has a label that reads "Coca-Cola" in red script. It appears to be filled with ice or frozen drinks.
+---
 
-The background features the vastness of space, with stars visible in the dark sky. A large planet, Earth, is prominently displayed behind the astronaut and the Moon's surface. The Earth is shown as a blue and white sphere with swirling clouds and landmasses, partially illuminated by sunlight.
+## 目录
 
-On the right side of the image, there is a small ladder leading up to a structure on the lunar surface. This structure appears to be made of metal or concrete and has some kind of equipment attached to it.
+- [简介](#简介)
+- [系统架构](#系统架构)
+- [性能参考](#性能参考)
+- [依赖项](#依赖项)
+- [安装](#安装)
+- [模型下载](#模型下载)
+- [构建](#构建)
+- [使用方法](#使用方法)
+- [ROS2 接口](#ros2-接口)
+- [节点参数](#节点参数)
+- [项目结构](#项目结构)
 
-The overall scene combines elements of science fiction and reality, creating an atmosphere that is both humorous and mysterious. The juxtaposition of the astronaut's casual behavior with the vastness of space and Earth creates a sense of wonder and exploration.
+---
 
-------------
+## 简介
 
-## Qwen3-2B VLM for RK3588 NPU (Rock 5, Orange Pi 5). <br/>
-[![License](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)<br/><br/>
-Paper: [Qwen3 Technical Report](https://arxiv.org/pdf/2505.09388)<br/><br/>
-Hugging face: https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct
+本包将 [Q-engineering](https://github.com/Qengineering/Qwen3-VL-2B-NPU) 的 Qwen3-VL-2B NPU 推理库封装为标准 ROS2 节点，实现了：
 
-------------
+- **摄像头订阅**：自动获取最新图像帧（默认话题 `/stereo/left_raw`）
+- **ROS2 Service**：暴露 `/vlm_query` 服务，接收文本问题，返回模型回答
+- **多线程执行**：图像订阅与推理服务并发执行，避免互相阻塞
+- **帧时效检查**：超过设定时间的陈旧帧会被拒绝，确保推理基于最新画面
+- **对话历史**：模型保留上下文，支持多轮对话（发送 `clear` 可重置）
 
-## Introduction
+模型量化规格：LLM 使用 **w8a8**，VLM 视觉编码器使用 **fp16**，分辨率 448×448。
 
-LLMs (Large Language Models) are neural networks trained on large text datasets to understand and generate language.<br>
-VLMs (Vision-Language Models) add a visual encoder so the model can process images and text together.<br> 
-A combined VLM+LLM system is often referred to as a multimodal model.
+---
 
-These models can be large—hundreds of millions to billions of parameters—which impacts accuracy, memory use, and runtime speed.<br>
-On edge devices like the RK3588, available RAM and compute are limited, and even the NPU has strict constraints on supported operations.<br>
-Because of this, models typically need to be quantised or simplified to fit.
+## 系统架构
 
-Performance is usually expressed in tokens (words) per second.<br>
-Once converted to RKNN, parts of the model can run on the NPU, improving speed.<br>
-Despite these limits, models like Qwen3-2B run well on the RK3588 because the NPU efficiently accelerates the heavy math, and the vision encoder can be optimised. This makes advanced multimodal AI feasible on small, power-efficient devices.
-
-------------
-
-## Model performance benchmark (FPS)
-
-All models, with C++ examples, can be found on the Q-engineering GitHub.<br><br>
-All LLM models are quantized to **w8a8**, while the VLM vision encoders use **fp16**.<br>
-
-| model         | RAM (GB)<sup>1</sup> | llm cold sec<sup>2</sup> | llm warm sec<sup>3</sup> | vlm cold sec<sup>2</sup> | vlm warm sec<sup>3</sup> | Resolution | Tokens/s |
-| --------------| :--: | :-----: | :-----: | :--------: | :-----: | :--------:  | :--------: |
-| [Qwen3-2B](https://github.com/Qengineering/Qwen3-VL-2B-NPU) | 3.1 | 21.9 | 2.6 | 10.0  | 0.9 | 448 x 448 | 11.5 |
-| [Qwen3-4B](https://github.com/Qengineering/Qwen3-VL-4B-NPU) | 8.7 | 49.6 | 5.6 | 10.6  | 1.1 | 448 x 448 | 5.7 |
-| [InternVL3.5-1B](https://github.com/Qengineering/InternVL3.5-1B-NPU) | 1.9 |  8.3 |   8.0 | 1.5    | 0.8 | 448 x 448 | 24 |
-| [InternVL3.5-2B](https://github.com/Qengineering/InternVL3.5-2B-NPU) | 3.0 |  22 |   8.0 | 2.7    | 0.8 | 448 x 448 | 11.2 |
-| [InternVL3.5-4B](https://github.com/Qengineering/InternVL3.5-4B-NPU) | 5.4 |  50 |   8.0 | 5.9    | 0.8 | 448 x 448 | 5 |
-| [InternVL3.5-8B](https://github.com/Qengineering/InternVL3.5-8B-NPU) | 8.8 |  92 |   8.0 | 50.5    | 5.8 | 448 x 448 | 3.5 |
-| [Qwen2.5-3B](https://github.com/Qengineering/Qwen2.5-VL-3B-NPU) | 4.8 | 48.3 |  4.0 | 17.9  | 1.8 | 392 x 392 | 7.0 |
-| [Qwen2-7B](https://github.com/Qengineering/Qwen2-VL-7B-NPU) | 8.7 | 86.6 |   34.5 | 37.1  | 20.7 | 392 x 392 | 3.7 |
-| [Qwen2-2.2B](https://github.com/Qengineering/Qwen2-VL-2B-NPU) | 3.3 | 29.1 |   2.5 | 17.1  | 1.7 | 392 x 392 | 12.5 |
-| [InternVL3-1B](https://github.com/Qengineering/InternVL3-NPU) | 1.3 |  6.8 |   1.1 | 7.8    | 0.75 | 448 x 448 | 30 |
-| [SmolVLM2-2.2B](https://github.com/Qengineering/SmolVLM2-2B-NPU) | 3.4 | 21.2 |   2.6 | 10.5   | 0.9  | 384 x 384 | 11 |
-| [SmolVLM2-500M](https://github.com/Qengineering/SmolVLM2-500M-NPU) | 0.8 |  4.8 |   0.7 | 2.5    | 0.25 | 384 x 384 | 31 |
-| [SmolVLM2-256M](https://github.com/Qengineering/SmolVLM2-256M-NPU) | 0.5 |  1.1 |   0.4 | 2.5    | 0.25 | 384 x 384 | 54 |
-
-<sup>1</sup> The total used memory; LLM plus the VLM. <br>
-<sup>2</sup> When an llm/vlm model is loaded for the first time from your disk to RAM or NPU, it is called a cold start.<br>
-The duration depends on your OS, I/O transfer rate, and memory mapping.<br> 
-<sup>3</sup> Subsequent loading (warm start) takes advantage of the already mapped data in RAM. Mostly, only a few pointers need to be restored.<br><br>
-<img width="600" height="450" alt="Plot_1" src="https://github.com/user-attachments/assets/2dde8d27-c8ae-474c-b845-4ed52bdc0785" /><br>
-<img width="600" height="450" alt="Plot_2" src="https://github.com/user-attachments/assets/0cf946d5-5458-4166-bc2b-fa1592ae4d6b" />
-
-------------
-
-## Dependencies.
-To run the application, you have to:
-- OpenCV 64-bit installed.
-- rkllm library.
-- rknn library.
-- Optional: Code::Blocks. (```$ sudo apt-get install codeblocks```)
-
-### Installing the dependencies.
-Start with the usual 
 ```
-$ sudo apt-get update 
-$ sudo apt-get upgrade
-$ sudo apt-get install cmake wget curl
-```
-#### OpenCV
-To install OpenCV on your SBC, follow the Raspberry Pi 4 [guide](https://qengineering.eu/install-opencv-on-raspberry-64-os.html).<br><br>
-Or, when you have no intentions to program code:
-```
-$ sudo apt-get install libopencv-dev 
-```
-------------
-
-## Installing the app.
-```
-$ git clone https://github.com/Qengineering/Qwen3-VL-2B-NPU
-```
-
-#### RKLLM, RKNN
-To run InternVL3, you need to have the **rkllm-runtime** library version **1.2.3** (or higher) installed, as well as the **rknpu driver** version **0.9.8**.<br>
-If you don't have these on your machine, or if you have a lower version, you need to install them.<br>
-We have provided the correct versions in the repo.<br>
-```bash
-$ cd ./Qwen3-VL-2B-NPU/aarch64/library
-$ sudo cp ./*.so /usr/local/lib
-$ cd ../include
-$ sudo cp ./*.h /usr/local/include
-```
-### Download the LLM and VLM model.
-The next step is downloading the models.<br>
-This time, we used the original model supplied by Rockchips [rkllm_model_zoo](https://console.box.lenovo.com/l/l0tXb8) (44 GB!), fetch code: rkllm.<br><br>
-Better to download the two needed files (2.3 GB) from our Sync.com server:<br>
-[qwen3-vl-2b-instruct_w8a8_rk3588.rkllm](https://ln5.sync.com/dl/6cd2e45d0#swbgmrgn-xqjwb4pn-h3fizzg5-vb3jvfxd) and [qwen3-vl-2b-vision_rk3588.rknn](https://ln5.sync.com/dl/d1a22a380#kshmvhzf-ma8xhheb-mbx2x47f-qp5fajj5)<br>
-Copy both into this folder.
-
-
-### Building the app.
-Once you have the two models, it is time to build your application.<br>
-You can use **Code::Blocks**.
-- Load the project file *.cbp in Code::Blocks.
-- Select _Release_, not Debug.
-- Compile and run with F9.
-- You can alter command line arguments with _Project -> Set programs arguments..._ 
-
-Or use **Cmake**.
-```
-$ mkdir build
-$ cd build
-$ cmake ..
-$ make -j4
-```
-### Running the app.
-The app has the following arguments.
-```bash
-VLM_NPU Picture RKNN_model RKLLM_model NewTokens ContextLength
-```
-| Argument   | Comment |
-| --------------| --  |
-| picture | The image. Provide a dummy if you don't want to use an image | 
-| RKNN_model | The visual encoder model (vlm) | 
-| RKLLM_model | The large language model (llm) | 
-| NewTokens | This sets the maximum number of new tokens. Optional, default 2048| 
-| ContextLength | This specifies the maximum total number of tokens the model can process. Optional, default 4096| 
-
-<br>In the context of the Rockchip RK3588 LLM (Large Language Model) library, the parameters NewTokens and ContextLength both control different limits for text generation, and they're typical in LLM workflows.<br>
-**NewTokens**<br> 
-This sets the maximum number of tokens (pieces of text, typically sub-word units) that the model is allowed to generate in response to a prompt during a single inference round. For example, if set to 300, the model will not return more than 300 tokens as output, regardless of the prompt length. It's important for controlling generation length to avoid too-short or too-long responses, helping manage resource use and output size.<br>
-**ContextLength**<br>
-This specifies the maximum total number of tokens the model can process in one go, which includes both the prompt (input) tokens and all generated tokens. For example, if set to 2048 and your prompt already uses 500 tokens, the model can generate up to 2048-500 = 1548 new tokens. This is a hardware and architecture constraint set during model conversion and deployment, as the context window cannot exceed the model's design limit (for instance, 4096 or 8192 tokens depending on the model variant).
-
-A typical command line can be:
-```bash
-./VLM_NPU ./Moon.jpg ./models/qwen3-vl-2b-vision_rk3588.rknn ./models/qwen3-vl-2b-instruct_w8a8_rk3588.rkllm 2048 4096
-```
-The NewTokens (2048) and ContextLength (4096) are optional and can be omitted.
-### Using the app.
-Using the application is simple. Once you provide the image and the models, you can ask everything you want.<br>
-Remember, we are on a bare Rock5C, so don't expect the same quality answers as ChatGPT can provide.<br>
-On the other hand, when you see the examples below, the app performs amazingly well.<br><br>
-If you want to talk about the picture, you need to include the token `<image>` in your prompt once.<br>
-The app remembers the dialogue until you give the token `<clear>`.<br>
-With `<exit>`, you leave the application.
-### C++ code.  
-Below, you find the surprisingly little code of main.cpp. 
-```cpp
-#include "RK35llm.h"
-
-int main(int argc, char** argv)
-{
-    std::string input_str;
-    std::string output_str;
-    RK35llm RKLLM;
-
-    RKLLM.SetInfo(true);            //yes, you may give me additional model information
-    RKLLM.SetSilence(false);        //you may print the incremental text chunks on the terminal
-
-    if     (argc< 4) {std::cerr << "Usage: " << argv[0] << " image vlm_model llm_model [option]NewTokens [option]ContextLength\n"; return -1;}
-    else if(argc==4) RKLLM.LoadModel(argv[2],argv[3]);
-    else if(argc==5) RKLLM.LoadModel(argv[2],argv[3],std::atoi(argv[4]));
-    else if(argc> 5) RKLLM.LoadModel(argv[2],argv[3],std::atoi(argv[4]),std::atoi(argv[5]));
-
-    cv::Mat Pic = cv::imread(argv[1]);
-    RKLLM.LoadImage(Pic);
-
-    while(true) {
-        printf("\n");
-        printf("User: ");
-
-        std::getline(std::cin, input_str);
-        if (input_str == "exit") break;
-
-        output_str = RKLLM.Ask(input_str);
-//        std::cout << "\nLLM Reply: " << output_str << std::endl;
-    }
-
-    return 0;
-}
-```
-Most code speaks for itself. One remark.<br>
-The LLM generates the answer to your request in little pieces of text. You see them as if the LLM is typing on your terminal.<br>
-RKLLM.SetSilence controls this behaviour. When set to `true`, it will suppress this output. RKLLM.Ask() also returns the complete answer.<br>
-In main.cpp uncomment this line:
-```cpp
-std::cout << "\nLLM Answer: " << output_str << std::endl;
-```
-
-------------
-
-## VLM examples.
-| Image         | Dialog |
-| --------------| --  |
-| ![Singapore_S](https://github.com/user-attachments/assets/e742059a-3bdb-41be-9647-e7767da12ce6) |**User**: \<image\>Which city is this?<br>**Answer**: This is Singapore, a city in Southeast Asia known for its modern architecture and vibrant culture. It's located on the island of Singapore, which is part of Malaysia but has been an independent nation since 1965.<br><br>The image shows several iconic landmarks:<br>- The Marina Bay Sands hotel with its distinctive "sky garden" design.<br>- The Singapore Flyer, a large observation wheel.<br>- The city's skyline at dusk, reflecting beautifully on the water. | 
-| ![ChineseWall_S](https://github.com/user-attachments/assets/3ba4b57a-4b22-4050-b995-9599c6d239de) |**User**: \<image\>Tell me something about the history of this place.<br>**Answer**: The image shows the **Great Wall of China**, one of the most iconic and historically significant structures in human civilization.<br><br>Here is some information about its history:<br><br>- The Great Wall was built over several centuries by various Chinese dynasties to protect against invasions from nomadic groups, particularly the Mongols.<br>- Construction began during the **Qin Dynasty** (221–206 BCE), but it wasn't until the **Ming Dynasty** (1368–1644) that the wall was expanded and fortified in a massive scale. The Ming builders used advanced techniques to construct walls, towers, and watchtowers.<br>- The Great Wall stretches over 13,000 miles (21,000 kilometers), with many sections built on different dates and by different dynasties.<br>- It is not just a wall but also a symbol of Chinese engineering, military strategy, and cultural identity. Today, it is one of the most visited tourist attractions in China.<br><br>The Great Wall has been an important part of Chinese history for over 2,000 years and continues to be a source of pride for the Chinese people.|
-| ![Pizza_S](https://github.com/user-attachments/assets/26fd5da3-f491-4b48-978a-14eae0819247) |**User**: \<image\>What are the ingredients I need to make this?<br>**Answer**: Based on the image provided, this appears to be a classic **Neapolitan-style pizza** or a similar style of **pizza al taglio**, which is known for its simple and authentic ingredients.<br><br>The key components visible in the picture are:<br>-   **Pizza Base:** A round, thin-crust base made from dough.<br>-   **Tomato Sauce:** The red sauce that forms the foundation of the pizza.<br>-   **Cheese:** Typically mozzarella cheese, which is melted over the top.<br>-   **Fresh Basil Leaves:** Used as a garnish and for flavor.<br><br>The most important ingredient to note is the **crust**. This type of crust is often made from a special dough that's traditionally fermented in a wooden oven (a "forno" or "forno di legno") and has a very thin, delicate texture. The pizza is then cooked at high temperatures until it becomes golden brown.<br><br>The ingredients you would need to make this are:<br>-   **Dough:** A simple dough made from flour, water, salt, and sometimes yeast.<br>-   **Tomato Sauce:** A basic tomato sauce made with fresh tomatoes, garlic, olive oil, and seasonings.<br>-   **Mozzarella Cheese:** Fresh mozzarella cheese is typically used for this type of pizza.<br>-   **Fresh Basil Leaves:** For garnish and flavor.<br><br>The key difference from a typical pizza is the use of a very thin crust that's cooked in a wood-fired oven. This gives it a unique texture and flavor, which is why it's often considered a specialty item at Italian restaurants.<br><br>**User**: What is the first step?<br>**Answer**:Based on the image provided, the first step to make this pizza is to **prepare the dough**.<br><br>Here’s a breakdown of what you need to do:<br>1.  **Prepare the Dough:** You will need to mix flour, water, salt, and sometimes yeast to create a soft, pliable dough.<br>2.  **Knead the Dough:** Knead the dough until it becomes smooth and elastic.<br>3.  **Let It Rest:** Let the dough rest for about an hour or two in a warm place.<br>4.  **Shape the Dough:** After resting, shape the dough into a ball and let it rise again for another hour or so.<br><br>Once you have prepared the dough, you can proceed to make the pizza by spreading tomato sauce on top of the dough, adding mozzarella cheese, and finally placing fresh basil leaves on top.|
-| ![Titanic_S](https://github.com/user-attachments/assets/bf6da76c-c9a4-41c6-bea1-2b4411dd4013) |**User**: \<image\>Which movie is this?<br>**Answer**: This is the 2008 film *Titanic*, directed by James Cameron. It's an epic romantic drama that tells the story of a young woman, Rose, and her love for Jack Dawson on the ill-fated ship Titanic during its maiden voyage in 1912.<br><br>The image shows Leonardo DiCaprio as Jack Dawson and Kate Winslet as Rose DeWitt, both iconic characters from the film. The scene is set against a dramatic sunset over the ocean, capturing their emotional journey and the tragic fate of the ship.|
-
-## LLM example.
-Notice the nice Markdown makeup of the answer!<br><br>
-**User**: Can you make me a C++ call that embeds the Pythagorean theorem?<br><br>
-**Answer**: Certainly! Here's a **C++** program that uses the **Pythagorean Theorem** to calculate the length of the hypotenuse in a right triangle given the lengths of the two legs. It includes a simple function to compute it using the formula:
-
-\[
-c = \sqrt{a^2 + b^2}
-\]
-
-We'll use `std::sqrt` from `<cmath>` and define a C++ function that takes two floating-point numbers as input (the two legs) and returns the hypotenuse.
-
-```cpp
-#include <iostream>
-#include <cmath>
-using namespace std;
-
-// Function to calculate the hypotenuse using Pythagorean Theorem
-double calculateHypotenuse(double a, double b) {
-    return sqrt(a * a + b * b);
-}
-
-int main() {
-    // Example usage: Calculate hypotenuse for sides 3 and 4
-    double leg1 = 3.0;
-    double leg2 = 4.0;
-
-    double hypotenuse = calculateHypotenuse(leg1, leg2);
-
-    cout << "The hypotenuse of a right triangle with legs " 
-         << leg1 << " and " << leg2 << " is: " << hypotenuse << endl;
-
-    return 0;
-}
-```
-
-### Output:
-```
-The hypotenuse of a right triangle with legs 3 and 4 is: 5.0
+摄像头节点
+    │  sensor_msgs/Image
+    ▼
+┌─────────────────────────────┐
+│       vlm_server 节点        │
+│  ┌──────────────────────┐   │
+│  │   VlmServerNode      │   │
+│  │  ┌────────────────┐  │   │
+│  │  │  RK35llm       │  │   │
+│  │  │  (RKNN视觉编码) │  │   │
+│  │  │  (RKLLM语言模型)│  │   │
+│  │  └────────────────┘  │   │
+│  └──────────────────────┘   │
+└───────────┬─────────────────┘
+            │ /vlm_query (VlmQuery.srv)
+            ▼
+       vlm_client 节点
+       （终端 REPL 交互）
 ```
 
 ---
 
-### How It Works:
+## 性能参考
 
-- `calculateHypotenuse(a, b)` computes \( \sqrt{a^2 + b^2} \)
-- The program uses the **Pythagorean Theorem** to find the hypotenuse.
-- This is a **pure C++ implementation**, not involving Python or any external libraries.
+| 指标 | 数值 |
+|------|------|
+| 内存占用 | ~3.1 GB |
+| LLM 冷启动 | ~21.9 s |
+| LLM 热启动 | ~2.6 s |
+| VLM 冷启动 | ~10.0 s |
+| VLM 热启动 | ~0.9 s |
+| 推理速度 | ~11.5 tokens/s |
+| 输入分辨率 | 448 × 448 |
 
-Let me know if you'd like this version to work with **user input**, **multiple test cases**, or even **include error checking**!
+> 测试平台：Rock 5C（RK3588），模型量化：w8a8（LLM）+ fp16（VLM）
 
-------------
+---
 
-## **[Rock5GPT](https://rock5gpt.qengineering.eu)**
-To get a taste, try our professional Qwen3 AI-chatbot running on a Rock 5C: https://rock5gpt.qengineering.eu
-<img width="815" height="1151" alt="Rock5GPT" src="https://github.com/user-attachments/assets/3ce5ad31-bc2b-4513-8ac9-42be793a86db" /><br>
+## 依赖项
 
-------------
+### 硬件
+- Rockchip RK3588 SoC 开发板（Rock 5、Orange Pi 5 等）
 
-[![paypal](https://qengineering.eu/images/TipJarSmall4.png)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=CPZTM5BB3FCYL) 
+### 软件
+| 依赖 | 版本要求 |
+|------|----------|
+| ROS2 | Humble 或更高 |
+| OpenCV | 4.x（64-bit） |
+| rkllm-runtime | ≥ 1.2.3 |
+| rknpu driver | ≥ 0.9.8 |
+| C++ | 17 |
 
+### 安装系统依赖
 
+```bash
+sudo apt-get update && sudo apt-get upgrade
+sudo apt-get install cmake wget curl libopencv-dev
+```
 
+---
 
+## 安装
+
+### 1. 克隆本仓库到 ROS2 工作空间
+
+```bash
+cd ~/ros2_ws/src
+git clone <本仓库地址> qwen3_vl_2b_npu
+```
+
+### 2. 安装 RKLLM / RKNN 运行时库
+
+仓库已附带所需版本的库文件与头文件：
+
+```bash
+cd qwen3_vl_2b_npu/aarch64/library
+sudo cp ./*.so /usr/local/lib
+
+cd ../include
+sudo cp ./*.h /usr/local/include
+
+sudo ldconfig
+```
+
+---
+
+## 模型下载
+
+需要以下两个模型文件（共约 2.3 GB），下载后放入包内的 `models/` 目录：
+
+| 文件 | 说明 |
+|------|------|
+| `qwen3-vl-2b-vision_rk3588.rknn` | 视觉编码器（RKNN 格式） |
+| `qwen3-vl-2b-instruct_w8a8_rk3588.rkllm` | 语言模型（RKLLM 格式，w8a8 量化） |
+
+**下载地址（Sync.com）：**
+- [qwen3-vl-2b-instruct_w8a8_rk3588.rkllm](https://ln5.sync.com/dl/6cd2e45d0#swbgmrgn-xqjwb4pn-h3fizzg5-vb3jvfxd)
+- [qwen3-vl-2b-vision_rk3588.rknn](https://ln5.sync.com/dl/d1a22a380#kshmvhzf-ma8xhheb-mbx2x47f-qp5fajj5)
+
+也可从 Rockchip 官方模型库下载（完整包约 44 GB）：[rkllm_model_zoo](https://console.box.lenovo.com/l/l0tXb8)（fetch code: `rkllm`）
+
+---
+
+## 构建
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select qwen3_vl_2b_npu
+source install/setup.bash
+```
+
+如果 RKLLM/RKNN 库不在 `/usr/local/lib`，可通过 CMake 参数指定路径：
+
+```bash
+colcon build --packages-select qwen3_vl_2b_npu \
+    --cmake-args -DRK_LIB_PATH=/path/to/libs -DRK_INCLUDE_PATH=/path/to/includes
+```
+
+---
+
+## 使用方法
+
+### 启动 vlm_server（服务端节点）
+
+```bash
+ros2 run qwen3_vl_2b_npu vlm_server --ros-args \
+    -p vlm_model:=/path/to/models/qwen3-vl-2b-vision_rk3588.rknn \
+    -p llm_model:=/path/to/models/qwen3-vl-2b-instruct_w8a8_rk3588.rkllm \
+    -p camera_topic:=/stereo/left_raw
+```
+
+### 启动 vlm_client（交互式客户端）
+
+```bash
+ros2 run qwen3_vl_2b_npu vlm_client
+```
+
+客户端启动后进入 REPL 交互模式：
+
+```
+User: <image>这张图片里有什么？
+Answer: 图片中显示的是...
+
+User: 详细描述一下背景
+Answer: 背景中包含...
+
+User: clear          # 清除对话历史（重置 KV Cache）
+User: exit           # 退出客户端
+```
+
+> **注意**：客户端会自动在问题中追加 `<image>` 标记（若不存在），确保服务端走多模态推理路径。
+
+---
+
+## ROS2 接口
+
+### 服务：`/vlm_query`
+
+服务类型定义（`srv/VlmQuery.srv`）：
+
+```
+# Request
+string question
+---
+# Response
+string response
+bool   success
+```
+
+**特殊指令**（通过 `question` 字段发送）：
+
+| 指令 | 说明 |
+|------|------|
+| `clear` | 清除对话历史，重置 KV Cache |
+| `<image>` | 在问题中包含此标记，表示需要引用当前摄像头图像 |
+
+### 订阅的话题
+
+| 话题 | 消息类型 | 说明 |
+|------|----------|------|
+| `/stereo/left_raw`（可配置） | `sensor_msgs/Image` | 摄像头输入图像（只保留最新帧） |
+
+---
+
+## 节点参数
+
+`vlm_server` 节点支持以下 ROS2 参数：
+
+| 参数名 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `vlm_model` | string | **必填** | RKNN 视觉编码器模型路径 |
+| `llm_model` | string | **必填** | RKLLM 语言模型路径 |
+| `camera_topic` | string | `/stereo/left_raw` | 订阅的摄像头话题名 |
+| `max_new_tokens` | int | `2048` | 单次推理最大生成 token 数 |
+| `context_length` | int | `4096` | 模型上下文窗口长度（含输入+输出） |
+| `show_info` | bool | `false` | 是否打印模型加载详细信息 |
+| `frame_timeout_s` | double | `5.0` | 摄像头帧最大允许时效（秒），超时拒绝推理 |
+
+---
+
+## 项目结构
+
+```
+qwen3_vl_2b_npu/
+├── aarch64/
+│   └── include/            # Rockchip 运行时头文件
+│       ├── rkllm.h
+│       ├── rknn_api.h
+│       ├── rknn_custom_op.h
+│       └── rknn_matmul_api.h
+├── include/
+│   └── qwen3_vl_2b_npu/
+│       ├── RK35llm.h       # NPU 推理引擎封装类
+│       └── VlmServerNode.h # ROS2 服务节点类
+├── models/
+│   └── README.md           # 模型下载说明
+├── src/
+│   ├── RK35llm.cpp         # RKNN + RKLLM 推理引擎实现
+│   ├── VlmServerNode.cpp   # ROS2 节点：订阅摄像头 + 提供服务
+│   ├── vlm_server.cpp      # 服务端 main()
+│   └── vlm_client.cpp      # 客户端 REPL main()
+├── srv/
+│   └── VlmQuery.srv        # 自定义 ROS2 服务消息定义
+├── CMakeLists.txt
+├── package.xml
+└── README.md
+```
+
+---
+
+## 相关资源
+
+- [Qwen3 技术报告](https://arxiv.org/pdf/2505.09388)
+- [Qwen3-VL 原始 NPU 项目（Q-engineering）](https://github.com/Qengineering/Qwen3-VL-2B-NPU)
+- [Qwen3-VL-4B HuggingFace](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct)
+- [在线演示（Rock5GPT）](https://rock5gpt.qengineering.eu)
+- [OpenCV 安装指南](https://qengineering.eu/install-opencv-on-raspberry-64-os.html)
