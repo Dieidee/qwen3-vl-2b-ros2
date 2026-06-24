@@ -22,6 +22,7 @@ endif()
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_action REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
@@ -69,7 +70,7 @@ add_executable(vlm_server
     src/VlmServerNode.cpp
 )
 target_include_directories(vlm_server PRIVATE include ${RK_INCLUDE_PATH})
-ament_target_dependencies(vlm_server rclcpp rclcpp_action sensor_msgs cv_bridge)
+ament_target_dependencies(vlm_server rclcpp rclcpp_action sensor_msgs std_msgs cv_bridge)
 # rk35llm_lib(PUBLIC) 已携带 OpenCV + rknnrt + rkllmrt + -fopenmp 等，
 # vlm_server 只需显式链接 rk35llm_lib 即可继承全部
 target_link_libraries(vlm_server rk35llm_lib ${cpp_typesupport_target})
