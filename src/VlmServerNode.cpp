@@ -34,6 +34,13 @@ VlmServerNode::VlmServerNode()
     image_mode_timeout_s_  = this->get_parameter("image_mode_timeout_s").as_double();
     frame_timeout_s_       = this->get_parameter("frame_timeout_s").as_double();
 
+    RCLCPP_INFO(this->get_logger(),
+        "Params | ctx_len=%d, max_tokens=%d | frame_timeout=%.1fs, image_timeout=%.1fs",
+        ctx_len, max_tokens, frame_timeout_s_, image_mode_timeout_s_);
+
+    last_image_time_ = this->now();  // 初始化时钟，避免默认构造的时钟源不匹配
+    last_frame_stamp_ = this->now();
+
     // ── 触发词 / 退出词 ─────────────────────────────────────
     trigger_words_ = {"[IMAGE]", "看图", "看一下", "看看", "启动图片",
                       "识别一下", "拍一下", "图片模式", "图像模式",
@@ -107,7 +114,7 @@ void VlmServerNode::imageCallback(
     }
     std::lock_guard<std::mutex> lock(frame_mtx_);
     latest_frame_      = cv_ptr->image;
-    last_frame_stamp_  = msg->header.stamp;
+    last_frame_stamp_  = this->now();    // 用节点时钟，避免跨时钟源减法
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -127,14 +134,24 @@ void VlmServerNode::asrCallback(
 
     if (text.empty()) return;
 
+    // 调试日志：当前图像模式状态
+    if (is_image_mode_) {
+        double remain = image_mode_timeout_s_ - safe_seconds_diff(this->now(), last_image_time_);
+        RCLCPP_INFO(this->get_logger(), "[ASR] image=ON, timeout in %.0fs | '%s'",
+                    std::max(0.0, remain), text.c_str());
+    } else {
+        RCLCPP_INFO(this->get_logger(), "[ASR] image=OFF | '%s'", text.c_str());
+    }
+
     // ── 1. 检查退出词 ─────────────────────────────────────
     std::string exit_word = match_exit_word(text);
     if (!exit_word.empty()) {
         is_image_mode_ = false;
+        vlm_.Ask("clear");  // 清空历史，防止视觉上下文污染后续纯文本
         RCLCPP_INFO(this->get_logger(), "Image mode OFF (exit word: '%s')",
                     exit_word.c_str());
         auto msg_out = std_msgs::msg::String();
-        msg_out.data = "已退出图片模式";
+        msg_out.data = "已退出图片模式，清空历史上下文";
         pub_result_->publish(msg_out);
         return;
     }
@@ -164,11 +181,15 @@ void VlmServerNode::asrCallback(
     } else {
         // ── 3. 检查图像模式超时 ────────────────────────────
         if (is_image_mode_) {
-            double age = (this->now() - last_image_time_).seconds();
+            double age = safe_seconds_diff(this->now(), last_image_time_);
             if (age > image_mode_timeout_s_) {
                 is_image_mode_ = false;
+                vlm_.Ask("clear");  // 超时清空，避免脏历史
                 RCLCPP_INFO(this->get_logger(),
                     "Image mode auto-off (timeout %.1fs)", age);
+                auto timeout_msg = std_msgs::msg::String();
+                timeout_msg.data = "图像模式已超时退出，请重新说触发词";
+                pub_result_->publish(timeout_msg);
             }
         }
         needs_image = is_image_mode_;
@@ -216,6 +237,20 @@ std::string VlmServerNode::match_exit_word(const std::string& text)
         if (text.find(w) != std::string::npos) return w;
     }
     return "";
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// 安全时间减法
+// ═══════════════════════════════════════════════════════════════════
+
+double VlmServerNode::safe_seconds_diff(const rclcpp::Time& a, const rclcpp::Time& b)
+{
+    try {
+        return (a - b).seconds();
+    } catch (const std::runtime_error& e) {
+        RCLCPP_ERROR(this->get_logger(), "Time diff failed: %s", e.what());
+        return 0.0;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -304,7 +339,7 @@ void VlmServerNode::process_query(
         }
 
         double timeout_s = frame_timeout_s_;
-        double age_s = (this->now() - stamp).seconds();
+        double age_s = safe_seconds_diff(this->now(), stamp);
         if (age_s > timeout_s) {
             result->success  = false;
             result->response = "Frame too old: " + std::to_string(age_s) +

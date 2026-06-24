@@ -68,7 +68,7 @@ private:
     std::mutex  frame_mtx_;
 
     // 图像模式
-    std::atomic<bool> is_image_mode_{false};
+    std::atomic<bool> is_image_mode_{true};    // 默认开启看图
     rclcpp::Time      last_image_time_;
     double            image_mode_timeout_s_ = 60.0;
     double            frame_timeout_s_      = 5.0;
@@ -76,6 +76,9 @@ private:
     // 触发词/退出词 列表
     std::vector<std::string> trigger_words_;
     std::vector<std::string> exit_words_;
+
+    // 安全时间减法（时钟源不一致时返回 0 不崩溃）
+    double safe_seconds_diff(const rclcpp::Time& a, const rclcpp::Time& b);
 
     // NPU 互斥锁（同一时刻只有一个推理在跑）
     std::mutex npu_mutex_;
